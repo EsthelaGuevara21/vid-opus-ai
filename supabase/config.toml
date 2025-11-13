@@ -1,0 +1,4 @@
+project_id = "tanvaupbzgcrpplcbvkn"
+
+[functions.generate-video-content]
+verify_jwt = false
