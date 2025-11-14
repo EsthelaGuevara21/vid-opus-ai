@@ -37,7 +37,7 @@ Video Length: ${videoLength}
 Style: ${style}
 Target Audience: ${targetAudience}
 
-Please provide:
+CRITICAL: You MUST use these EXACT section headers without any modifications, numbers, or extra words:
 
 ## SCRIPT
 [Provide a complete, engaging script with timestamps. Include intro hook, main content sections, transitions, and outro with CTA. Mark timestamps as [00:00], [01:30], etc.]
