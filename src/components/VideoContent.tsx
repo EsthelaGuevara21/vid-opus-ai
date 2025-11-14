@@ -20,13 +20,29 @@ export const VideoContent = ({ content }: VideoContentProps) => {
   };
 
   function extractSection(text: string, startMarker: string, endMarker: string | null): string {
-    const startIndex = text.indexOf(startMarker);
-    if (startIndex === -1) return "";
-
-    const contentStart = startIndex + startMarker.length;
-    const endIndex = endMarker ? text.indexOf(endMarker, contentStart) : text.length;
+    // Create flexible regex patterns that match variations of the headers
+    const patterns: Record<string, RegExp> = {
+      "## SCRIPT": /##\s*(?:\d+\.)?\s*(?:FULL\s+)?SCRIPT/i,
+      "## VISUAL SCENES": /##\s*(?:\d+\.)?\s*(?:DETAILED\s+)?VISUAL\s+(?:SCENES|DESCRIPTIONS)/i,
+      "## MUSIC RECOMMENDATIONS": /##\s*(?:\d+\.)?\s*(?:BACKGROUND\s+)?MUSIC\s+RECOMMENDATIONS?/i,
+      "## THUMBNAIL CONCEPT": /##\s*(?:\d+\.)?\s*THUMBNAIL\s+(?:CONCEPT|DESIGN)/i
+    };
     
-    return text.slice(contentStart, endIndex === -1 ? text.length : endIndex).trim();
+    const pattern = patterns[startMarker];
+    if (!pattern) return "";
+    
+    const match = text.match(pattern);
+    if (!match) return "";
+    
+    const startIndex = match.index!;
+    const contentStart = startIndex + match[0].length;
+    
+    // Find next section or end
+    const endPattern = endMarker ? patterns[endMarker] : null;
+    const endMatch = endPattern ? text.slice(contentStart).match(endPattern) : null;
+    const endIndex = endMatch ? contentStart + endMatch.index! : text.length;
+    
+    return text.slice(contentStart, endIndex).trim();
   }
 
   const copyToClipboard = async (text: string, sectionName: string) => {
