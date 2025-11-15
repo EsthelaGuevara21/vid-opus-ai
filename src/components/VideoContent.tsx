@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Copy, Check, FileText, Image, Music, Palette } from "lucide-react";
 import { toast } from "sonner";
+import { VideoGenerator } from "@/components/VideoGenerator";
+import { useState } from "react";
 
 interface VideoContentProps {
   content: string;
@@ -103,7 +105,14 @@ export const VideoContent = ({ content }: VideoContentProps) => {
         <p className="text-muted-foreground">Everything you need to create your YouTube video</p>
       </div>
 
-      <div className="p-6">
+      <div className="p-6 space-y-6">
+        {sections.script && sections.visuals && (
+          <VideoGenerator 
+            script={sections.script}
+            visualScenes={sections.visuals}
+          />
+        )}
+
         <Tabs defaultValue="script" className="w-full">
           <TabsList className="grid w-full grid-cols-4 mb-6 bg-muted">
             <TabsTrigger value="script" className="flex items-center gap-2">
