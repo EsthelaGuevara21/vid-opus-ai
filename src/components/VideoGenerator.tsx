@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
@@ -22,7 +22,6 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const { toast } = useToast();
 
   const parseScriptAndScenes = (): SceneData[] => {
     const scriptLines = script.split('\n').filter(line => line.trim());
@@ -170,18 +169,11 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
       setVideoUrl(url);
       setProgress('Video generated successfully!');
       
-      toast({
-        title: "Video Generated!",
-        description: "Your video is ready to download.",
-      });
+      toast.success("Video generated! Your video is ready to download.");
       
     } catch (error) {
       console.error('Error generating video:', error);
-      toast({
-        title: "Generation Failed",
-        description: error instanceof Error ? error.message : "Failed to generate video",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "Failed to generate video");
       setProgress('');
     } finally {
       setIsGenerating(false);
