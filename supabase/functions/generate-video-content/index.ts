@@ -88,10 +88,29 @@ Make everything professional, engaging, and production-ready.`;
       throw new Error(`AI gateway error: ${errorText}`);
     }
 
-    const data = await response.json();
-    const generatedContent = data.choices[0].message.content;
+    // Read response as text first to debug potential issues
+    const responseText = await response.text();
+    console.log("Response length:", responseText.length);
+    console.log("Response preview:", responseText.substring(0, 200));
+    
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error("Failed to parse JSON response");
+      console.error("Parse error:", parseError);
+      console.error("Response text (first 1000 chars):", responseText.substring(0, 1000));
+      throw new Error("Invalid JSON response from AI gateway");
+    }
 
-    console.log("Successfully generated video content");
+    const generatedContent = data.choices?.[0]?.message?.content;
+    
+    if (!generatedContent) {
+      console.error("No content in response:", JSON.stringify(data).substring(0, 500));
+      throw new Error("No content generated from AI");
+    }
+
+    console.log("Successfully generated video content, length:", generatedContent.length);
 
     return new Response(
       JSON.stringify({ content: generatedContent }),
