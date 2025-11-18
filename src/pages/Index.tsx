@@ -54,14 +54,46 @@ const Index = () => {
       });
 
       if (error) {
-        if (error.message.includes("429")) {
-          toast.error("Rate limit exceeded. Please try again later.");
-        } else if (error.message.includes("402")) {
-          toast.error("Please add credits to your workspace to continue.");
-        } else {
-          toast.error("Failed to generate content. Please try again.");
-        }
         console.error("Error generating content:", error);
+        
+        // Check for payment/credits error
+        if (error.message?.includes("Payment required") || error.message?.includes("402") || error.message?.includes("credits")) {
+          toast.error("Not enough credits. Please add credits to your workspace to continue.", {
+            duration: 5000,
+            action: {
+              label: "Learn More",
+              onClick: () => window.open("https://docs.lovable.dev/features/ai", "_blank")
+            }
+          });
+          return;
+        }
+        
+        // Check for rate limit error
+        if (error.message?.includes("429") || error.message?.includes("rate limit")) {
+          toast.error("Rate limit exceeded. Please try again in a few moments.", {
+            duration: 5000
+          });
+          return;
+        }
+        
+        // Generic error
+        toast.error("Failed to generate content. Please try again.");
+        return;
+      }
+
+      // Check if data has an error field (fallback)
+      if (data?.error) {
+        if (data.error.includes("Payment required") || data.error.includes("credits")) {
+          toast.error("Not enough credits. Please add credits to your workspace to continue.", {
+            duration: 5000
+          });
+        } else if (data.error.includes("rate limit")) {
+          toast.error("Rate limit exceeded. Please try again in a few moments.", {
+            duration: 5000
+          });
+        } else {
+          toast.error(data.error);
+        }
         return;
       }
 
