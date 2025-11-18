@@ -286,19 +286,32 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
       
     } catch (error) {
       console.error('Error generating video:', error);
-      
+
+      const message = error instanceof Error ? error.message : String(error ?? 'Unknown error');
+
+      if (message.includes('Payment required') || message.includes('payment_required') || message.includes('credits')) {
+        toast.error('Not enough AI credits. Please add credits to your workspace to generate videos.', {
+          duration: 5000,
+        });
+      } else if (message.includes('rate limit') || message.includes('rate_limited') || message.includes('429')) {
+        toast.error('Rate limit exceeded. Please wait a bit and try again.', {
+          duration: 5000,
+        });
+      } else {
+        toast.error(message || 'Failed to generate video');
+      }
+
       // Update job as failed
       if (jobId) {
         await supabase
           .from('video_generation_jobs')
-          .update({ 
+          .update({
             status: 'failed',
-            error_message: error instanceof Error ? error.message : "Unknown error"
+            error_message: message,
           })
           .eq('id', jobId);
       }
-      
-      toast.error(error instanceof Error ? error.message : "Failed to generate video");
+
       setProgress('');
       setProgressPercent(0);
     } finally {
