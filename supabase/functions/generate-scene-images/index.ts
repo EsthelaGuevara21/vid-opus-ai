@@ -43,13 +43,16 @@ serve(async (req) => {
         .eq('id', jobId);
     }
 
-    // Generate images for each scene
-    const imagePromises = sceneDescriptions.map(async (description: string, index: number) => {
+    // Generate images for each scene sequentially to avoid rate limits
+    const images = [];
+    
+    for (let index = 0; index < sceneDescriptions.length; index++) {
+      const description = sceneDescriptions[index];
       console.log(`Generating image ${index + 1}/${sceneDescriptions.length}`);
       
       // Update progress
       if (jobId) {
-        const progress = Math.round(((index + 1) / sceneDescriptions.length) * 50); // Images are 50% of total
+        const progress = Math.round(((index + 1) / sceneDescriptions.length) * 50);
         await supabase
           .from('video_generation_jobs')
           .update({ 
@@ -60,48 +63,82 @@ serve(async (req) => {
           .eq('id', jobId);
       }
       
-      const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash-image-preview",
-          messages: [
-            {
-              role: "user",
-              content: `Generate a high-quality, professional image for a YouTube video scene: ${description}`
+      // Retry logic with exponential backoff
+      let retries = 3;
+      let imageUrl = null;
+      
+      while (retries > 0 && !imageUrl) {
+        try {
+          const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash-image-preview",
+              messages: [
+                {
+                  role: "user",
+                  content: `Generate a high-quality, professional image for a YouTube video scene: ${description}`
+                }
+              ],
+              modalities: ["image", "text"]
+            }),
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error("AI gateway error:", response.status, errorText);
+            
+            // Handle rate limiting
+            if (response.status === 429) {
+              retries--;
+              if (retries > 0) {
+                const waitTime = (4 - retries) * 2000; // 2s, 4s, 6s
+                console.log(`Rate limited. Waiting ${waitTime}ms before retry ${4 - retries}/3`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+              } else {
+                throw new Error("Rate limit exceeded. Please try again in a few moments or upgrade your plan for higher limits.");
+              }
             }
-          ],
-          modalities: ["image", "text"]
-        }),
-      });
+            
+            throw new Error(`AI gateway error: ${errorText}`);
+          }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("AI gateway error:", response.status, errorText);
-        throw new Error(`AI gateway error: ${errorText}`);
+          const data = await response.json();
+          console.log(`Image ${index + 1} response:`, JSON.stringify(data).substring(0, 200));
+          
+          imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+          
+          if (!imageUrl) {
+            console.error("No image in response for scene:", description);
+            console.error("Full response:", JSON.stringify(data));
+            throw new Error("No image generated - check if prompt is valid");
+          }
+          
+          images.push({
+            sceneIndex: index,
+            imageUrl: imageUrl
+          });
+          
+          // Add a small delay between successful requests to avoid rate limits
+          if (index < sceneDescriptions.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+        } catch (error) {
+          if (retries === 1) {
+            throw error;
+          }
+          retries--;
+          const waitTime = (4 - retries) * 2000;
+          console.log(`Error generating image. Waiting ${waitTime}ms before retry ${4 - retries}/3`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
       }
-
-      const data = await response.json();
-      console.log(`Image ${index + 1} response:`, JSON.stringify(data).substring(0, 200));
-      
-      const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-      
-      if (!imageUrl) {
-        console.error("No image in response for scene:", description);
-        console.error("Full response:", JSON.stringify(data));
-        throw new Error("No image generated - check if prompt is valid");
-      }
-
-      return {
-        sceneIndex: index,
-        imageUrl: imageUrl
-      };
-    });
-
-    const images = await Promise.all(imagePromises);
+    }
 
     console.log("Successfully generated all images");
 
