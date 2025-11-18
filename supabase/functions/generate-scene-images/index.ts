@@ -159,9 +159,23 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error("Error in generate-scene-images function:", error);
+
+    const message = error instanceof Error ? error.message : "Unknown error";
+    let status = 500;
+    let clientMessage = message;
+
+    // Surface payment/credits and rate limit errors explicitly
+    if (message.includes("payment_required") || message.includes("Payment required")) {
+      status = 402;
+      clientMessage = "Payment required. Not enough AI credits in your workspace.";
+    } else if (message.includes("rate_limited") || message.includes("429")) {
+      status = 429;
+      clientMessage = "Rate limit exceeded. Please wait a bit and try again.";
+    }
+
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: clientMessage }),
+      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
