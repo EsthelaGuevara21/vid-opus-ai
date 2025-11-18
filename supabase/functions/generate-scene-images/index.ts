@@ -11,7 +11,7 @@ serve(async (req) => {
   }
 
   try {
-    const { sceneDescriptions } = await req.json();
+    const { sceneDescriptions, jobId } = await req.json();
     
     if (!Array.isArray(sceneDescriptions) || sceneDescriptions.length === 0) {
       throw new Error("sceneDescriptions must be a non-empty array");
@@ -24,9 +24,41 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
+    // Import Supabase client for progress updates
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Update job status to processing
+    if (jobId) {
+      await supabase
+        .from('video_generation_jobs')
+        .update({ 
+          status: 'processing',
+          current_step: 'Generating scene images',
+          total_scenes: sceneDescriptions.length,
+          progress: 0
+        })
+        .eq('id', jobId);
+    }
+
     // Generate images for each scene
     const imagePromises = sceneDescriptions.map(async (description: string, index: number) => {
       console.log(`Generating image ${index + 1}/${sceneDescriptions.length}`);
+      
+      // Update progress
+      if (jobId) {
+        const progress = Math.round(((index + 1) / sceneDescriptions.length) * 50); // Images are 50% of total
+        await supabase
+          .from('video_generation_jobs')
+          .update({ 
+            completed_scenes: index + 1,
+            progress: progress,
+            current_step: `Generating image ${index + 1}/${sceneDescriptions.length}`
+          })
+          .eq('id', jobId);
+      }
       
       const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
@@ -72,6 +104,17 @@ serve(async (req) => {
     const images = await Promise.all(imagePromises);
 
     console.log("Successfully generated all images");
+
+    // Update job progress
+    if (jobId) {
+      await supabase
+        .from('video_generation_jobs')
+        .update({ 
+          progress: 50,
+          current_step: 'Images generated, preparing video assembly'
+        })
+        .eq('id', jobId);
+    }
 
     return new Response(
       JSON.stringify({ images }),

@@ -41,6 +41,45 @@ export type Database = {
         }
         Relationships: []
       }
+      video_generation_jobs: {
+        Row: {
+          completed_scenes: number | null
+          created_at: string
+          current_step: string | null
+          error_message: string | null
+          id: string
+          progress: number
+          status: string
+          total_scenes: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          completed_scenes?: number | null
+          created_at?: string
+          current_step?: string | null
+          error_message?: string | null
+          id?: string
+          progress?: number
+          status?: string
+          total_scenes?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          completed_scenes?: number | null
+          created_at?: string
+          current_step?: string | null
+          error_message?: string | null
+          id?: string
+          progress?: number
+          status?: string
+          total_scenes?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       video_projects: {
         Row: {
           created_at: string

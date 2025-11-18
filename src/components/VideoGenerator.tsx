@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { FFmpeg } from '@ffmpeg/ffmpeg';
@@ -21,7 +22,43 @@ interface SceneData {
 export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState('');
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [currentStep, setCurrentStep] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  // Subscribe to real-time progress updates
+  useEffect(() => {
+    if (!jobId) return;
+
+    const channel = supabase
+      .channel(`job-${jobId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'video_generation_jobs',
+          filter: `id=eq.${jobId}`
+        },
+        (payload) => {
+          const job = payload.new as any;
+          setProgressPercent(job.progress || 0);
+          setCurrentStep(job.current_step || '');
+          setProgress(job.current_step || '');
+          
+          if (job.status === 'failed') {
+            toast.error(job.error_message || 'Video generation failed');
+            setIsGenerating(false);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [jobId]);
 
   const parseScriptAndScenes = (): SceneData[] => {
     const scriptLines = script.split('\n').filter(line => line.trim());
@@ -121,9 +158,33 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
 
   const generateVideo = async () => {
     setIsGenerating(true);
-    setProgress('Parsing script and scenes...');
+    setProgress('Initializing video generation...');
+    setProgressPercent(0);
     
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('You must be logged in to generate videos');
+      }
+
+      // Create a job record
+      const { data: job, error: jobError } = await supabase
+        .from('video_generation_jobs')
+        .insert({
+          user_id: user.id,
+          status: 'pending',
+          progress: 0,
+          current_step: 'Parsing script and scenes'
+        })
+        .select()
+        .single();
+
+      if (jobError) throw jobError;
+      setJobId(job.id);
+
+      setProgress('Parsing script and scenes...');
+      setProgressPercent(5);
       const scenes = parseScriptAndScenes();
       
       if (scenes.length === 0) {
@@ -132,11 +193,13 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
 
       // Generate images for all scenes
       setProgress(`Generating ${scenes.length} scene images...`);
+      setProgressPercent(10);
       const { data: imageData, error: imageError } = await supabase.functions.invoke(
         'generate-scene-images',
         {
           body: { 
-            sceneDescriptions: scenes.map(s => s.visualDescription)
+            sceneDescriptions: scenes.map(s => s.visualDescription),
+            jobId: job.id
           }
         }
       );
@@ -145,6 +208,12 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
       if (!imageData?.images) throw new Error("Failed to generate images");
 
       setProgress('Loading FFmpeg...');
+      setProgressPercent(55);
+      await supabase
+        .from('video_generation_jobs')
+        .update({ current_step: 'Loading video processor', progress: 55 })
+        .eq('id', job.id);
+
       const ffmpeg = new FFmpeg();
       
       await ffmpeg.load({
@@ -159,6 +228,11 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
       });
 
       setProgress('Processing scenes...');
+      setProgressPercent(65);
+      await supabase
+        .from('video_generation_jobs')
+        .update({ current_step: 'Processing scene images', progress: 65 })
+        .eq('id', job.id);
       
       // Write images to FFmpeg virtual filesystem
       for (let i = 0; i < imageData.images.length; i++) {
@@ -166,10 +240,19 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
         const imageData64 = imageUrl.split(',')[1];
         const imageBuffer = Uint8Array.from(atob(imageData64), c => c.charCodeAt(0));
         await ffmpeg.writeFile(`image${i}.png`, imageBuffer);
+        
+        const imgProgress = 65 + Math.round((i / imageData.images.length) * 15);
+        setProgressPercent(imgProgress);
       }
 
       // Create video from images (5 seconds per image)
       setProgress('Rendering video...');
+      setProgressPercent(80);
+      await supabase
+        .from('video_generation_jobs')
+        .update({ current_step: 'Rendering final video', progress: 80 })
+        .eq('id', job.id);
+
       await ffmpeg.exec([
         '-framerate', '1/5',
         '-i', 'image%d.png',
@@ -187,13 +270,37 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
       
       setVideoUrl(url);
       setProgress('Video generated successfully!');
+      setProgressPercent(100);
+      
+      // Update job as completed
+      await supabase
+        .from('video_generation_jobs')
+        .update({ 
+          status: 'completed',
+          progress: 100,
+          current_step: 'Video generation complete!'
+        })
+        .eq('id', job.id);
       
       toast.success("Video generated! Your video is ready to download.");
       
     } catch (error) {
       console.error('Error generating video:', error);
+      
+      // Update job as failed
+      if (jobId) {
+        await supabase
+          .from('video_generation_jobs')
+          .update({ 
+            status: 'failed',
+            error_message: error instanceof Error ? error.message : "Unknown error"
+          })
+          .eq('id', jobId);
+      }
+      
       toast.error(error instanceof Error ? error.message : "Failed to generate video");
       setProgress('');
+      setProgressPercent(0);
     } finally {
       setIsGenerating(false);
     }
@@ -214,8 +321,12 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
       </p>
 
       {progress && (
-        <div className="p-3 bg-muted rounded text-sm">
-          {progress}
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">{currentStep || progress}</span>
+            <span className="font-medium">{progressPercent}%</span>
+          </div>
+          <Progress value={progressPercent} className="h-2" />
         </div>
       )}
 
