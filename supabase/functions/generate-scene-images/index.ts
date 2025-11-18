@@ -53,10 +53,14 @@ serve(async (req) => {
       }
 
       const data = await response.json();
+      console.log(`Image ${index + 1} response:`, JSON.stringify(data).substring(0, 200));
+      
       const imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
       
       if (!imageUrl) {
-        throw new Error("No image generated");
+        console.error("No image in response for scene:", description);
+        console.error("Full response:", JSON.stringify(data));
+        throw new Error("No image generated - check if prompt is valid");
       }
 
       return {
