@@ -25,7 +25,26 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
 
   const parseScriptAndScenes = (): SceneData[] => {
     const scriptLines = script.split('\n').filter(line => line.trim());
-    const sceneLines = visualScenes.split('\n').filter(line => line.trim());
+    
+    // Extract clean visual descriptions from the visual scenes section
+    const visualLines = visualScenes.split('\n').filter(line => line.trim());
+    const cleanDescriptions: string[] = [];
+    
+    for (const line of visualLines) {
+      // Skip timestamp lines, section headers, and formatting
+      if (line.match(/^\[[\d:]+\s*-\s*[\d:]+\]/) || 
+          line.match(/^\*\*[A-Z\s]+\*\*$/) ||
+          line.startsWith('*   **')) {
+        continue;
+      }
+      // Extract actual visual descriptions from bullet points
+      if (line.startsWith('*   **Visuals:**') || line.startsWith('*   **B-roll:**')) {
+        const description = line.replace(/^\*\s+\*\*(?:Visuals|B-roll):\*\*\s*/, '').trim();
+        if (description.length > 20) {
+          cleanDescriptions.push(description);
+        }
+      }
+    }
     
     const scenes: SceneData[] = [];
     const timestampRegex = /\[(\d{2}:\d{2})\]/g;
@@ -41,8 +60,8 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
           scenes.push({
             timestamp: currentTimestamp,
             text: currentText.trim(),
-            visualDescription: sceneLines[sceneIndex] || 'Generic scene',
-            duration: 5 // Default 5 seconds per scene
+            visualDescription: cleanDescriptions[sceneIndex] || 'A professional video scene',
+            duration: 5
           });
           sceneIndex++;
         }
@@ -54,11 +73,11 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
     }
     
     // Add last scene
-    if (currentText) {
+    if (currentText && sceneIndex < cleanDescriptions.length) {
       scenes.push({
         timestamp: currentTimestamp,
         text: currentText.trim(),
-        visualDescription: sceneLines[sceneIndex] || 'Generic scene',
+        visualDescription: cleanDescriptions[sceneIndex] || 'A professional video scene',
         duration: 5
       });
     }
