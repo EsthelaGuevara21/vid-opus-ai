@@ -161,21 +161,23 @@ serve(async (req) => {
     console.error("Error in generate-scene-images function:", error);
 
     const message = error instanceof Error ? error.message : "Unknown error";
-    let status = 500;
+    let statusCode = 500;
     let clientMessage = message;
 
-    // Surface payment/credits and rate limit errors explicitly
+    // Surface payment/credits and rate limit errors explicitly in the body,
+    // but always respond with HTTP 200 so the frontend can gracefully
+    // handle fallbacks without causing a runtime error overlay.
     if (message.includes("payment_required") || message.includes("Payment required")) {
-      status = 402;
+      statusCode = 402;
       clientMessage = "Payment required. Not enough AI credits in your workspace.";
     } else if (message.includes("rate_limited") || message.includes("429")) {
-      status = 429;
+      statusCode = 429;
       clientMessage = "Rate limit exceeded. Please wait a bit and try again.";
     }
 
     return new Response(
-      JSON.stringify({ error: clientMessage }),
-      { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ error: clientMessage, statusCode }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });

@@ -246,18 +246,25 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
           }
         );
 
-        if (imageError) {
-          const errorMessage = imageError.message || String(imageError);
-          // Check if it's a payment/credits error
-          if (errorMessage.includes('Payment required') || errorMessage.includes('payment_required') || 
-              errorMessage.includes('credits') || errorMessage.includes('402')) {
+        const paymentOrRateError = (message: string) =>
+          message.includes('Payment required') ||
+          message.includes('payment_required') ||
+          message.includes('credits') ||
+          message.includes('402');
+
+        const bodyErrorMessage = typeof data?.error === 'string' ? data.error : '';
+
+        if (imageError || bodyErrorMessage) {
+          const errorMessage = imageError?.message || bodyErrorMessage || String(imageError);
+
+          if (paymentOrRateError(errorMessage)) {
             console.log("AI credits exhausted, using placeholder images");
             toast.info("AI credits exhausted. Using placeholder images for video generation.", {
               duration: 5000,
             });
             imageData = { images: generatePlaceholderImages(scenes) };
           } else {
-            throw imageError;
+            throw imageError || new Error(errorMessage || 'Unknown error generating images');
           }
         } else {
           if (!data?.images) throw new Error("Failed to generate images");
