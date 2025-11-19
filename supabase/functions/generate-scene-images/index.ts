@@ -19,9 +19,9 @@ serve(async (req) => {
 
     console.log("Generating images for", sceneDescriptions.length, "scenes");
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is not configured");
     }
 
     // Import Supabase client for progress updates
@@ -69,27 +69,25 @@ serve(async (req) => {
       
       while (retries > 0 && !imageUrl) {
         try {
-          const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          const response = await fetch("https://api.openai.com/v1/images/generations", {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: "google/gemini-2.5-flash-image-preview",
-              messages: [
-                {
-                  role: "user",
-                  content: `Generate a high-quality, professional image for a YouTube video scene: ${description}`
-                }
-              ],
-              modalities: ["image", "text"]
+              model: "gpt-image-1",
+              prompt: `Generate a high-quality, professional image for a YouTube video scene: ${description}`,
+              n: 1,
+              size: "1024x1024",
+              quality: "high",
+              response_format: "b64_json"
             }),
           });
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error("AI gateway error:", response.status, errorText);
+            console.error("OpenAI API error:", response.status, errorText);
             
             // Handle rate limiting
             if (response.status === 429) {
@@ -100,44 +98,61 @@ serve(async (req) => {
                 await new Promise(resolve => setTimeout(resolve, waitTime));
                 continue;
               } else {
-                throw new Error("Rate limit exceeded. Please try again in a few moments or upgrade your plan for higher limits.");
+                throw new Error("OpenAI rate limit exceeded. Please try again in a few moments.");
               }
             }
             
-            throw new Error(`AI gateway error: ${errorText}`);
+            throw new Error(`OpenAI API error: ${errorText}`);
           }
 
           const data = await response.json();
-          console.log(`Image ${index + 1} response:`, JSON.stringify(data).substring(0, 200));
+          const base64Image = data.data?.[0]?.b64_json;
           
-          imageUrl = data.choices?.[0]?.message?.images?.[0]?.image_url?.url;
-          
-          if (!imageUrl) {
-            console.error("No image in response for scene:", description);
-            console.error("Full response:", JSON.stringify(data));
-            throw new Error("No image generated - check if prompt is valid");
+          if (!base64Image) {
+            console.error("No image in response:", JSON.stringify(data).substring(0, 500));
+            throw new Error("No image generated from OpenAI");
           }
-          
-          images.push({
-            sceneIndex: index,
-            imageUrl: imageUrl
-          });
-          
-          // Add a small delay between successful requests to avoid rate limits
-          if (index < sceneDescriptions.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-          
+
+          imageUrl = `data:image/png;base64,${base64Image}`;
+          console.log(`Successfully generated image ${index + 1}`);
+          break;
         } catch (error) {
-          if (retries === 1) {
+          retries--;
+          console.error(`Error generating image (${retries} retries left):`, error);
+          
+          if (retries === 0) {
+            // If we're out of retries and this is due to payment/credits issue, return error response
+            if (error instanceof Error && (error.message.includes("402") || error.message.includes("credits"))) {
+              if (jobId) {
+                await supabase
+                  .from('video_generation_jobs')
+                  .update({ 
+                    status: 'failed',
+                    error_message: 'OpenAI API error: Payment required. Please check your OpenAI account.'
+                  })
+                  .eq('id', jobId);
+              }
+              
+              return new Response(
+                JSON.stringify({
+                  error: "OpenAI API error: Payment required. Please check your OpenAI account.",
+                  statusCode: 402,
+                }),
+                { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              );
+            }
             throw error;
           }
-          retries--;
-          const waitTime = (4 - retries) * 2000;
-          console.log(`Error generating image. Waiting ${waitTime}ms before retry ${4 - retries}/3`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
+      
+      if (!imageUrl) {
+        throw new Error("Failed to generate image after retries");
+      }
+      
+      images.push(imageUrl);
     }
 
     console.log("Successfully generated all images");
