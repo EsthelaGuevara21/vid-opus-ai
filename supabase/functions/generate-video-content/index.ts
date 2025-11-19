@@ -73,15 +73,23 @@ Make everything professional, engaging, and production-ready.`;
       console.error("AI gateway error:", response.status, errorText);
       
       if (response.status === 429) {
+        // Rate limit error: surface in body but keep HTTP 200 to avoid runtime overlay
         return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({
+            error: "Rate limit exceeded. Please try again later.",
+            statusCode: 429,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
+        // Credits/payment error: surface in body but keep HTTP 200 to avoid runtime overlay
         return new Response(
-          JSON.stringify({ error: "Payment required. Please add credits to your workspace." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({
+            error: "Payment required. Please add credits to your workspace.",
+            statusCode: 402,
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       
