@@ -156,6 +156,44 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
     });
   };
 
+  // Generate placeholder images using canvas when AI credits run out
+  const generatePlaceholderImages = (scenes: SceneData[]): Array<{ sceneIndex: number; imageUrl: string }> => {
+    return scenes.map((scene, index) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1024;
+      canvas.height = 576;
+      const ctx = canvas.getContext('2d')!;
+
+      // Create gradient background
+      const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      const colors = ['#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b'];
+      gradient.addColorStop(0, colors[index % colors.length]);
+      gradient.addColorStop(1, colors[(index + 1) % colors.length]);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Add scene number
+      ctx.fillStyle = 'white';
+      ctx.font = 'bold 120px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`Scene ${index + 1}`, canvas.width / 2, canvas.height / 2 - 50);
+
+      // Add scene description (truncated)
+      ctx.font = '24px sans-serif';
+      const maxLength = 60;
+      const description = scene.visualDescription.length > maxLength 
+        ? scene.visualDescription.substring(0, maxLength) + '...'
+        : scene.visualDescription;
+      ctx.fillText(description, canvas.width / 2, canvas.height / 2 + 50);
+
+      return {
+        sceneIndex: index,
+        imageUrl: canvas.toDataURL('image/png')
+      };
+    });
+  };
+
   const generateVideo = async () => {
     setIsGenerating(true);
     setProgress('Initializing video generation...');
@@ -191,21 +229,53 @@ export const VideoGenerator = ({ script, visualScenes }: VideoGeneratorProps) =>
         throw new Error("No scenes found in the script");
       }
 
-      // Generate images for all scenes
+      // Try to generate images with AI, fallback to placeholders if credits run out
       setProgress(`Generating ${scenes.length} scene images...`);
       setProgressPercent(10);
-      const { data: imageData, error: imageError } = await supabase.functions.invoke(
-        'generate-scene-images',
-        {
-          body: { 
-            sceneDescriptions: scenes.map(s => s.visualDescription),
-            jobId: job.id
+      
+      let imageData: { images: Array<{ sceneIndex: number; imageUrl: string }> };
+      
+      try {
+        const { data, error: imageError } = await supabase.functions.invoke(
+          'generate-scene-images',
+          {
+            body: { 
+              sceneDescriptions: scenes.map(s => s.visualDescription),
+              jobId: job.id
+            }
           }
-        }
-      );
+        );
 
-      if (imageError) throw imageError;
-      if (!imageData?.images) throw new Error("Failed to generate images");
+        if (imageError) {
+          const errorMessage = imageError.message || String(imageError);
+          // Check if it's a payment/credits error
+          if (errorMessage.includes('Payment required') || errorMessage.includes('payment_required') || 
+              errorMessage.includes('credits') || errorMessage.includes('402')) {
+            console.log("AI credits exhausted, using placeholder images");
+            toast.info("AI credits exhausted. Using placeholder images for video generation.", {
+              duration: 5000,
+            });
+            imageData = { images: generatePlaceholderImages(scenes) };
+          } else {
+            throw imageError;
+          }
+        } else {
+          if (!data?.images) throw new Error("Failed to generate images");
+          imageData = data;
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('Payment required') || errorMessage.includes('payment_required') || 
+            errorMessage.includes('credits') || errorMessage.includes('402')) {
+          console.log("AI credits exhausted, using placeholder images");
+          toast.info("AI credits exhausted. Using placeholder images for video generation.", {
+            duration: 5000,
+          });
+          imageData = { images: generatePlaceholderImages(scenes) };
+        } else {
+          throw error;
+        }
+      }
 
       setProgress('Loading FFmpeg...');
       setProgressPercent(55);
