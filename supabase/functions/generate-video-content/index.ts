@@ -15,9 +15,9 @@ serve(async (req) => {
     
     console.log("Generating video content for:", { topic, videoLength, style, targetAudience });
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY is not configured");
     }
 
     // Create a comprehensive system prompt for video production
@@ -53,47 +53,37 @@ CRITICAL: You MUST use these EXACT section headers without any modifications, nu
 
 Make everything professional, engaging, and production-ready.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gpt-5-mini-2025-08-07",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
+        max_completion_tokens: 4000,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+      console.error("OpenAI API error:", response.status, errorText);
       
       if (response.status === 429) {
-        // Rate limit error: surface in body but keep HTTP 200 to avoid runtime overlay
         return new Response(
           JSON.stringify({
-            error: "Rate limit exceeded. Please try again later.",
+            error: "OpenAI rate limit exceeded. Please try again later.",
             statusCode: 429,
           }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (response.status === 402) {
-        // Credits/payment error: surface in body but keep HTTP 200 to avoid runtime overlay
-        return new Response(
-          JSON.stringify({
-            error: "Payment required. Please add credits to your workspace.",
-            statusCode: 402,
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
       
-      throw new Error(`AI gateway error: ${errorText}`);
+      throw new Error(`OpenAI API error: ${errorText}`);
     }
 
     // Read response as text first to debug potential issues
@@ -115,7 +105,7 @@ Make everything professional, engaging, and production-ready.`;
     
     if (!generatedContent) {
       console.error("No content in response:", JSON.stringify(data).substring(0, 500));
-      throw new Error("No content generated from AI");
+      throw new Error("No content generated from OpenAI");
     }
 
     console.log("Successfully generated video content, length:", generatedContent.length);
