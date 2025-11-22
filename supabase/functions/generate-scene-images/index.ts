@@ -80,8 +80,7 @@ serve(async (req) => {
               prompt: `Generate a high-quality, professional image for a YouTube video scene: ${description}`,
               n: 1,
               size: "1024x1024",
-              quality: "high",
-              response_format: "b64_json"
+              quality: "high"
             }),
           });
 
